@@ -628,8 +628,15 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=xxx
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=xxx
 NEXT_PUBLIC_FIREBASE_APP_ID=xxx
 
-# Firebase Admin (Server-side)
-FIREBASE_ADMIN_CREDENTIALS={"type":"service_account",...}
+# Firebase Admin (Server-side) - required by /api/admin/* routes.
+# NEVER commit a serviceAccountKey.json; Google scans public repos and disables
+# any key it finds, which breaks every server-side Firebase call.
+# Project id falls back to NEXT_PUBLIC_FIREBASE_PROJECT_ID, so only these two are needed:
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@heroes-cd74a.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+# Alternative to the three vars above: the whole service account JSON
+# (raw or base64-encoded) in a single var.
+# FIREBASE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}
 
 # MercadoPago
 MERCADOPAGO_ACCESS_TOKEN=TEST-xxx (or APP_USR-xxx for production)

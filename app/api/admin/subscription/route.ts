@@ -39,18 +39,33 @@ interface AdminSubscriptionUpdateBody {
   amount?: number
 }
 
-async function verifyAdminAuth(req: NextRequest): Promise<boolean> {
+type AdminAuthResult =
+  | { ok: true; uid: string }
+  | { ok: false; reason: string }
+
+async function verifyAdminAuth(req: NextRequest): Promise<AdminAuthResult> {
+  const authHeader = req.headers.get("Authorization")
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return { ok: false, reason: "missing_authorization_header" }
+  }
+
+  const token = authHeader.split("Bearer ")[1]
+  if (!token || token === "undefined" || token === "null") {
+    return { ok: false, reason: "empty_bearer_token" }
+  }
+
+  let decodedToken
   try {
-    const authHeader = req.headers.get("Authorization")
-    if (!authHeader || !authHeader.startsWith("Bearer ")) return false
-
-    const token = authHeader.split("Bearer ")[1]
-    if (!token) return false
-
     const { app } = getFirebaseAdmin()
     const auth = getAuth(app)
-    const decodedToken = await auth.verifyIdToken(token)
+    decodedToken = await auth.verifyIdToken(token)
+  } catch (error) {
+    console.error("[Admin Subscription API] Token verification failed:", error)
+    const code = (error as { code?: string })?.code || (error as Error)?.message
+    return { ok: false, reason: `invalid_token: ${code}` }
+  }
 
+  try {
     const db = getAdminFirestore()
     let userData: FirebaseFirestore.DocumentData | undefined
 
@@ -59,29 +74,49 @@ async function verifyAdminAuth(req: NextRequest): Promise<boolean> {
       userData = directDoc.data()
     } else {
       // Document ID may differ from UID — query by uid field
-      const querySnapshot = await db.collection("users").where("uid", "==", decodedToken.uid).limit(1).get()
-      if (querySnapshot.empty) return false
-      userData = querySnapshot.docs[0].data()
+      const byUid = await db.collection("users").where("uid", "==", decodedToken.uid).limit(1).get()
+      if (!byUid.empty) {
+        userData = byUid.docs[0].data()
+      } else if (decodedToken.email) {
+        // Last resort: some legacy user docs have neither the UID as doc id nor a uid field
+        const byEmail = await db.collection("users").where("email", "==", decodedToken.email).limit(1).get()
+        if (!byEmail.empty) userData = byEmail.docs[0].data()
+      }
     }
 
-    return (
-      userData?.user_type === "admin" ||
-      userData?.role === "admin" ||
-      userData?.permission === "admin" ||
-      (Array.isArray(userData?.permission) && userData.permission.includes("admin"))
-    )
+    if (!userData) {
+      return { ok: false, reason: `user_document_not_found: uid=${decodedToken.uid}` }
+    }
+
+    const isAdmin =
+      decodedToken.admin === true ||
+      decodedToken.role === "admin" ||
+      userData.user_type === "admin" ||
+      userData.role === "admin" ||
+      userData.permission === "admin" ||
+      (Array.isArray(userData.permission) && userData.permission.includes("admin"))
+
+    if (!isAdmin) {
+      return {
+        ok: false,
+        reason: `not_admin: user_type=${userData.user_type} role=${userData.role} permission=${JSON.stringify(userData.permission)}`,
+      }
+    }
+
+    return { ok: true, uid: decodedToken.uid }
   } catch (error) {
-    console.error("[Admin Subscription API] Auth error:", error)
-    return false
+    console.error("[Admin Subscription API] Auth lookup error:", error)
+    return { ok: false, reason: `auth_lookup_failed: ${(error as Error)?.message}` }
   }
 }
 
 export async function PUT(req: NextRequest) {
   try {
-    const isAdmin = await verifyAdminAuth(req)
-    if (!isAdmin) {
+    const authResult = await verifyAdminAuth(req)
+    if (!authResult.ok) {
+      console.warn("[Admin Subscription API] PUT rejected:", authResult.reason)
       return NextResponse.json(
-        { error: "Unauthorized - Admin access required" },
+        { error: "Unauthorized - Admin access required", reason: authResult.reason },
         { status: 401 }
       )
     }
@@ -350,10 +385,11 @@ export async function PUT(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     // Verify admin authentication
-    const admin = await verifyAdminAuth(req)
-    if (!admin) {
+    const authResult = await verifyAdminAuth(req)
+    if (!authResult.ok) {
+      console.warn("[Admin Subscription API] GET rejected:", authResult.reason)
       return NextResponse.json(
-        { error: "Unauthorized - Admin access required" },
+        { error: "Unauthorized - Admin access required", reason: authResult.reason },
         { status: 401 }
       )
     }

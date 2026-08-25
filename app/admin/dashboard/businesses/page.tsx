@@ -47,6 +47,24 @@ import { PromotionService } from "@/lib/services/promotion-service"
 import { auth } from "@/lib/firebase"
 import type { BusinessSubscription } from "@/lib/types"
 
+// Firebase restores the persisted session asynchronously; auth.currentUser can
+// still be null on the first render of the page. Resolve once it settles.
+function waitForFirebaseUser(timeoutMs = 5000) {
+  return new Promise<import("firebase/auth").User | null>((resolve) => {
+    const timer = setTimeout(() => {
+      unsubscribe()
+      resolve(auth.currentUser)
+    }, timeoutMs)
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        clearTimeout(timer)
+        unsubscribe()
+        resolve(user)
+      }
+    })
+  })
+}
+
 // Helper to get subscription display info
 function getSubscriptionDisplayInfo(business: any): {
   label: string
@@ -190,7 +208,14 @@ export default function AdminBusinessesPage() {
   ) => {
     setIsUpdatingSubscription(true)
     try {
-      const token = await auth.currentUser?.getIdToken()
+      // Wait for Firebase to restore the session before reading the token,
+      // otherwise auth.currentUser is null right after a page load and we'd
+      // send "Bearer undefined" (which the API rejects with a 401).
+      const currentUser = auth.currentUser ?? (await waitForFirebaseUser())
+      if (!currentUser) {
+        throw new Error("Tu sesión expiró. Vuelve a iniciar sesión para continuar.")
+      }
+      const token = await currentUser.getIdToken(true)
       const response = await fetch("/api/admin/subscription", {
         method: "PUT",
         headers: {
@@ -207,6 +232,9 @@ export default function AdminBusinessesPage() {
       const result = await response.json()
 
       if (!response.ok) {
+        if (result.reason) {
+          console.error("[Admin Subscription] Rejected:", result.reason)
+        }
         throw new Error(result.error || "Error updating subscription")
       }
 

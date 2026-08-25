@@ -26,3 +26,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+# firebase service account credentials (NEVER commit)
+serviceAccountKey.json
+*serviceAccount*.json

@@ -144,11 +144,11 @@ export default function AdminUsersPage() {
 
   const exportUsers = () => {
     const csvContent = [
-      "Primer Nombre,Segundo Nombre,Primer Apellido,Segundo Apellido,Email,ID Militar,Rango,Fuerza,Estado,Fecha de Registro,Última Conexión",
+      "Primer Nombre,Segundo Nombre,Primer Apellido,Segundo Apellido,Email,ID Militar,Rango,Fuerza,Ciudad,Fecha de Registro",
       ...filteredUsers.map(user => {
         const regDate = user.registrationDate.toLocaleDateString()
-        const lastLogin = user.lastLogin ? user.lastLogin.toLocaleDateString() : "N/A"
-        return `"${user.first_name}","${user.second_name}","${user.first_last_name}","${user.second_last_name}","${user.email}","${user.militaryId}","${user.rank}","${user.branch}","${user.status}","${regDate}","${lastLogin}"`
+        const city = user.city || "N/A"
+        return `"${user.first_name}","${user.second_name}","${user.first_last_name}","${user.second_last_name}","${user.email}","${user.militaryId}","${user.rank}","${user.branch}","${city}","${regDate}"`
       })
     ].join("\n")
 
